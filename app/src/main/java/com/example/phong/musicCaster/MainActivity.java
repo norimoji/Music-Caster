@@ -3,6 +3,8 @@ package com.example.phong.musicCaster;
 import com.example.phong.musicCaster.MusicService.MusicBinder;
 
 import android.os.Bundle;
+import android.support.design.widget.CollapsingToolbarLayout;
+import android.support.design.widget.CoordinatorLayout;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -20,6 +22,7 @@ import android.net.Uri;
 import android.content.ContentResolver;
 import android.database.Cursor;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 
 //More Imports
@@ -159,8 +162,9 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
     public void songPicked(View view){
         musicSrv.setSong(Integer.parseInt(view.getTag().toString()));
         musicSrv.playSong();
+        setContentView(R.layout.musicplayer);
+
         if(playbackPaused){
-            setController();
             playbackPaused=false;
         }
         controller.show(0);
