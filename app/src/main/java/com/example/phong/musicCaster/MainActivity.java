@@ -21,6 +21,7 @@ import java.util.Comparator;
 import android.net.Uri;
 import android.content.ContentResolver;
 import android.database.Cursor;
+import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -54,30 +55,29 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
     private String songTitle="";
     private static final int NOTIFY_ID=1;
 
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-
-        songView = (ListView)findViewById(R.id.song_list);
         songList = new ArrayList<Song>();
+        songView = (ListView)findViewById(R.id.song_list);
         getSongList();
 
         Collections.sort(songList, new Comparator<Song>() {
             public int compare(Song a, Song b) {
-                return a.getTitle().compareTo(b.getTitle());
+                return a.getSongTitle().compareTo(b.getSongTitle());
             }
         });
 
-        SongAdapter songAdt = new SongAdapter(this, songList);
+        SongHolder songAdt = new SongHolder(this, songList);
         songView.setAdapter(songAdt);
 
         this.setController();//Creates the media-keys
 
-        }
-
+    }
     private ServiceConnection musicConnection = new ServiceConnection(){
 
         @Override
@@ -86,7 +86,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
             //get service
             musicSrv = binder.getService();
             //pass list
-            musicSrv.setList(songList);
+            musicSrv.setListOfSongs(songList);
             musicBound = true;
         }
 
@@ -104,7 +104,6 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
             startService(playIntent);
         }
     }
-
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
@@ -129,7 +128,10 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
             case R.id.action_settings:
                 break;
             case R.id.action_broadcast:
-                setContentView(R.layout.broadcast_list);
+                startActivity(new Intent(MainActivity.this, BroadcastScreen.class));
+                return true;
+            case R.id.action_nextPage:
+                startActivity(new Intent(MainActivity.this, SongCollection.class));
         }
         return super.onOptionsItemSelected(item);
     }
@@ -162,12 +164,12 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
     public void songPicked(View view){
         musicSrv.setSong(Integer.parseInt(view.getTag().toString()));
         musicSrv.playSong();
-        setContentView(R.layout.musicplayer);
-
+        startActivity(new Intent(this,MusicPlayer.class));
         if(playbackPaused){
             playbackPaused=false;
         }
         controller.show(0);
+
     }
     protected void onDestroy() {
         stopService(playIntent);
@@ -189,15 +191,15 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
             }
         });
         controller.setMediaPlayer(this);
-        controller.setAnchorView(findViewById(R.id.song_list));
+        controller.setAnchorView(findViewById(R.id.musicplayer));
         controller.setEnabled(true);
     }
 
 
     @Override
     public void start() {
-    musicSrv.go();
-           }
+        musicSrv.go();
+    }
 
     @Override
     public void pause() {
@@ -208,26 +210,26 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
     @Override
     public int getDuration() {
         if(musicSrv!=null && musicBound && musicSrv.isPng())
-        return musicSrv.getDur();
+            return musicSrv.getDur();
         else return 0;
     }
 
     @Override
     public int getCurrentPosition() {
         if(musicSrv!=null && musicBound && musicSrv.isPng())
-        return musicSrv.getPosn();
+            return musicSrv.getPosn();
         else return 0;
     }
 
     @Override
     public void seekTo(int pos) {
-    musicSrv.seek(pos);
+        musicSrv.seek(pos);
     }
 
     @Override
     public boolean isPlaying() {
         if(musicSrv!=null && musicBound)
-        return musicSrv.isPng();
+            return musicSrv.isPng();
         return false;
     }
 
