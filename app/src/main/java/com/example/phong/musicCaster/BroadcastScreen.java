@@ -3,37 +3,27 @@ package com.example.phong.musicCaster;
 import android.app.ActionBar;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
-import android.content.BroadcastReceiver;
-import android.content.Context;
+import android.content.ContentResolver;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
-import android.nfc.Tag;
 import android.os.Bundle;
-
 import android.os.Handler;
 import android.os.Message;
-import android.support.annotation.Nullable;
-import android.support.design.widget.TabLayout;
-import android.support.v4.app.FragmentActivity;
+import android.provider.MediaStore;
 import android.support.v7.app.ActionBarActivity;
-import android.support.v7.app.AppCompatCallback;
-import android.support.v7.view.ActionMode;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
+import android.util.SparseBooleanArray;
 import android.view.View;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.ListView;
-import android.widget.MediaController;
-import android.widget.Toast; //Enable toast popups
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-
-import java.util.logging.LogRecord;
+import java.util.Collections;
+import java.util.Comparator;
 
 
 /**
@@ -41,45 +31,67 @@ import java.util.logging.LogRecord;
  */
 
 public class BroadcastScreen extends ActionBarActivity{
-    private BluetoothAdapter bluetoothAdapter = null;
-    private ListView availableBluetoothList;
-    private List bluetoothList;
-    private ArrayList<Song>queuedSongs;
-    private ArrayList<String>anotherList;
-    private BroadcastService broadcastService = null;
-    private ReceiverScreen receiverScreen;
-    private Toolbar toolbar = null;
     /**
-     *  Connected device name
+     *  Attributes relating to bluetooth and sharing functionality
+     **/
+    private BluetoothAdapter bluetoothAdapter = null;
+    private BroadcastService broadcastService = null;
+
+    /**
+     *  Attributes relating to the list of songs
+     */
+    private ListView songView;
+    private ArrayList<Song>queuedSongs;
+    private ArrayAdapter<Song>songArrayAdapter;
+    private Button submitButton;
+    /**
+     *  Connected device name & and debugging purposes
      */
     private String ConnectedDeviceName = null;
-
     private static final String TAG = "From BroadcastScreen";
+
     /**
      * Name of the connected device
      */
     private String mConnectedDeviceName = null;
     private static final int REQUEST_CONNECTION = 1;
 
+    /**
+     * Attributes relating to this class
+     */
+    private Toolbar toolbar = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.broadcast_list);
+        setContentView(R.layout.songcollection);
         //Added the toolbar
-        Toolbar toolbar = (Toolbar) findViewById(R.id.broadcastToolBar);
+        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        toolbar.setSubtitle("BOOM");
+        
+        //Used to change the title of the ActionBar
+        getSupportActionBar().setTitle("Select a song fool!");
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
         Intent listOfDevices = new Intent(this,ListOfDevices.class);
         startActivityForResult(listOfDevices, REQUEST_CONNECTION);
 
-        //Enable new activity for selecting songs
-//        Intent getSongList = new Intent(this, SongCollectionParcelable.class);
-//        final int result = 1;
-//        getSongList.putExtra("selectedSongs", "BroadcastScreen");
-//        startActivityForResult(getSongList, result);
+        //Creates a list of songs
+        queuedSongs = new ArrayList<Song>();
+        songView = (ListView) findViewById(R.id.Song_Collection);
+        this.getSongList();
+
+
+        Collections.sort(queuedSongs, new Comparator<Song>() {
+            public int compare(Song a, Song b) {
+                return a.getSongTitle().compareTo(b.getSongTitle());
+            }
+        });
+
+        SongHolder songAdt = new SongHolder(this, queuedSongs);
+        songView.setAdapter(songAdt);
+
     }
 
     @Override
@@ -143,20 +155,24 @@ public class BroadcastScreen extends ActionBarActivity{
      *
      * @param subTitle status
      */
-    private void setStatus(String subTitle) {
-      if (BroadcastScreen.this== null){
-        return;
-        }
-      final ActionBar actionBar = this.getActionBar();
+    private void setStatus(int subTitle) {
+        final ActionBar actionBar = this.getActionBar();
     if(null == actionBar){
         return;
     }
-        toolbar.setSubtitle(subTitle);
+        toolbar.setTitle(subTitle);
     }
 
+    private void setStatusWithString(CharSequence subTitle){
+        final ActionBar actionBar = this.getActionBar();
+        if(null == actionBar){
+            return;
+        }
+        toolbar.setTitle(subTitle);
+    }
 
     /**
-     * The Handler that gets information back from the BluetoothChatService
+     * The Handler that gets information back from the BroadcastService
      */
     private final Handler handler = new Handler() {
         @Override
@@ -165,19 +181,89 @@ public class BroadcastScreen extends ActionBarActivity{
                 case Constants.MESSAGE_STATE_CHANGE:
                     switch (msg.arg1) {
                         case BroadcastService.STATE_CONNECTED:
-                            setStatus(getString(R.string.title_connected_to, mConnectedDeviceName));
+                            setStatusWithString(getString(R.string.title_connected_to, mConnectedDeviceName));
                             break;
                         case BroadcastService.STATE_CONNECTING:
-                            setStatus("connecting...");
+                            setStatus(R.string.title_connecting);
                             break;
                         case BroadcastService.STATE_WAITING:
-                            setStatus("waiting...");
+                            setStatus(R.string.title_waiting);
                             break;
                         case BroadcastService.STATE_NONE:
-                            setStatus("not connected");
+                            setStatus(R.string.title_not_connected);
                             break;
                     }
             }
         }
     };
+
+    /**
+     *  list of song functions
+     **/
+    public void getSongList() {
+        //retrieve song info
+        ContentResolver musicResolver = getContentResolver();
+        Uri musicUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        Cursor musicCursor = musicResolver.query(musicUri, null, null, null, null);
+
+        if (musicCursor != null && musicCursor.moveToFirst()) {
+            //get columns
+            int titleColumn = musicCursor.getColumnIndex
+                    (android.provider.MediaStore.Audio.Media.TITLE);
+            int idColumn = musicCursor.getColumnIndex
+                    (android.provider.MediaStore.Audio.Media._ID);
+            int artistColumn = musicCursor.getColumnIndex
+                    (android.provider.MediaStore.Audio.Media.ARTIST);
+            //add songs to list
+            do {
+                long thisId = musicCursor.getLong(idColumn);
+                String thisTitle = musicCursor.getString(titleColumn);
+                String thisArtist = musicCursor.getString(artistColumn);
+                queuedSongs.add(new Song(thisId, thisTitle, thisArtist));
+            }
+            while (musicCursor.moveToNext());
+        }
+    }
+
+    private void findViewsByID() {
+        submitButton = (Button) findViewById(R.id.Submit);
+    }
+
+    //@Override
+    public void onClick(View v) {
+        SparseBooleanArray songSelected = songView.getCheckedItemPositions();
+        ArrayList<Song> selectedSongList = new ArrayList<Song>();
+        for (int i = 0; i < songSelected.size(); i++) {
+            //Song Position in the songList
+            int songPosition = songSelected.keyAt(i);
+            // Add song IF the song is selected
+            if (songSelected.valueAt(i))
+                selectedSongList.add(songArrayAdapter.getItem(songPosition));
+
+
+        }
+
+    }
+
+    /**
+     * The on-click listener for song picked
+     * selectedSongList is used for transmitting multiple songs
+     */
+    public void songPicked(View view) {
+        //ArrayList<String> selectedSongList = new ArrayList<String>();
+        Uri allsongsuri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        String songPath = allsongsuri.getPath();
+        //selectedSongList.add(songPath);
+
+        Intent returnToBroadcastScreen = new Intent();
+        returnToBroadcastScreen.putExtra("chosenSong", songPath);
+
+        //Set a result for another activity to receive and finish this activity
+        setResult(RESULT_OK, returnToBroadcastScreen);
+        Log.d(TAG, "Packaging Media Path: " + songPath);
+
+    //  startActivity(new Intent(this,BroadcastScreen.class));
+    //  finish();
+        Log.d(TAG,"Switching to Broadcasting screen with : " + songPath);
+    }
 }
