@@ -1,10 +1,10 @@
 package com.example.phong.musicCaster;
 
-import android.app.ActionBar;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -12,7 +12,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.provider.MediaStore;
-import android.support.v7.app.ActionBarActivity;
+import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.util.SparseBooleanArray;
@@ -20,7 +20,13 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
+import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -30,25 +36,25 @@ import java.util.Comparator;
  * Created by Phong on 02/12/2015.
  */
 
-public class BroadcastScreen extends ActionBarActivity{
+public class BroadcastScreen extends AppCompatActivity {
     /**
-     *  Attributes relating to bluetooth and sharing functionality
+     * Attributes relating to bluetooth and sharing functionality
      **/
     private BluetoothAdapter bluetoothAdapter = null;
     private BroadcastService broadcastService = null;
 
     /**
-     *  Attributes relating to the list of songs
+     * Attributes relating to the list of songs
      */
     private ListView songView;
-    private ArrayList<Song>queuedSongs;
-    private ArrayAdapter<Song>songArrayAdapter;
+    private ArrayList<Song> queuedSongs;
+    private ArrayAdapter<Song> songArrayAdapter;
     private Button submitButton;
     /**
-     *  Connected device name & and debugging purposes
+     * Connected device name & and debugging purposes
      */
     private String ConnectedDeviceName = null;
-    private static final String TAG = "From BroadcastScreen";
+    private static final String TAG = "From BroadcastScreen: ";
 
     /**
      * Name of the connected device
@@ -59,7 +65,11 @@ public class BroadcastScreen extends ActionBarActivity{
     /**
      * Attributes relating to this class
      */
-    private Toolbar toolbar = null;
+    private int currentState;
+    public static final int AWAITING_PACKAGE_FOR_CONVERSION = 0;
+    public static final int PACKAGE_CONVERTED = 1;
+    private File selectedSongLocation = null;
+    private byte[] convertedByteArray = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,13 +78,13 @@ public class BroadcastScreen extends ActionBarActivity{
         //Added the toolbar
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        
+
         //Used to change the title of the ActionBar
         getSupportActionBar().setTitle("Select a song fool!");
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        Intent listOfDevices = new Intent(this,ListOfDevices.class);
+        Intent listOfDevices = new Intent(this, ListOfDevices.class);
         startActivityForResult(listOfDevices, REQUEST_CONNECTION);
 
         //Creates a list of songs
@@ -92,25 +102,28 @@ public class BroadcastScreen extends ActionBarActivity{
         SongHolder songAdt = new SongHolder(this, queuedSongs);
         songView.setAdapter(songAdt);
 
+        currentState = AWAITING_PACKAGE_FOR_CONVERSION;
+
+
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if(!bluetoothAdapter.isEnabled()){
+        if (!bluetoothAdapter.isEnabled()) {
             //Enable new activity turning on Bluetooth
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivity(enableBtIntent);
         }
 
-        broadcastService = new BroadcastService(this,handler);
+        broadcastService = new BroadcastService(this, handler);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if(broadcastService != null){
-            if(broadcastService.getState() == BroadcastService.STATE_NONE){
+        if (broadcastService != null) {
+            if (broadcastService.getState() == BroadcastService.STATE_NONE) {
 
                 broadcastService.start();
             }
@@ -120,21 +133,21 @@ public class BroadcastScreen extends ActionBarActivity{
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         String a = Integer.toString(requestCode);
-        if(requestCode == REQUEST_CONNECTION) {
+        if (requestCode == REQUEST_CONNECTION) {
             Log.d(TAG, a);
             if (resultCode == Activity.RESULT_OK) {
                 connectDevice(data);
                 Log.d(TAG, "just received intent " + data.getPackage() + " " + data.getDataString() + "From ListOfDevice");
             }
         }
-       }
+    }
 
 
     private void connectDevice(Intent data) {
         // Get the device MAC address
         String deviceAddress = data.getExtras()
                 .getString(ListOfDevices.EXTRA_DEVICE_ADDRESS);
-        Log.v(TAG,deviceAddress);
+        Log.v(TAG, deviceAddress);
         //Check if bluetooth address is correct
         Log.v(TAG, "Attempt to connect " + String.valueOf(bluetoothAdapter.checkBluetoothAddress(deviceAddress)));
         Log.v(TAG, "Attempting to connect to device: " + deviceAddress);
@@ -142,7 +155,7 @@ public class BroadcastScreen extends ActionBarActivity{
         BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceAddress);
         // Attempt to connect to the device
         Log.v(TAG, "Attempting to try connect and connect with device object: " + deviceAddress);
-        if(bluetoothAdapter.checkBluetoothAddress(deviceAddress)){
+        if (bluetoothAdapter.checkBluetoothAddress(deviceAddress)) {
             Log.v(TAG, "Device object value: " + device.toString() + " " + device.getName());
             broadcastService.connect(device);
         }
@@ -156,19 +169,11 @@ public class BroadcastScreen extends ActionBarActivity{
      * @param subTitle status
      */
     private void setStatus(int subTitle) {
-        final ActionBar actionBar = this.getActionBar();
-    if(null == actionBar){
-        return;
-    }
-        toolbar.setTitle(subTitle);
+        getSupportActionBar().setSubtitle(subTitle);
     }
 
-    private void setStatusWithString(CharSequence subTitle){
-        final ActionBar actionBar = this.getActionBar();
-        if(null == actionBar){
-            return;
-        }
-        toolbar.setTitle(subTitle);
+    private void setStatusWithString(CharSequence subTitle) {
+        getSupportActionBar().setSubtitle(subTitle);
     }
 
     /**
@@ -181,7 +186,8 @@ public class BroadcastScreen extends ActionBarActivity{
                 case Constants.MESSAGE_STATE_CHANGE:
                     switch (msg.arg1) {
                         case BroadcastService.STATE_CONNECTED:
-                            setStatusWithString(getString(R.string.title_connected_to, mConnectedDeviceName));
+                            String tempName = getString(R.string.title_connected_to)+ mConnectedDeviceName;
+                            setStatusWithString(tempName);
                             break;
                         case BroadcastService.STATE_CONNECTING:
                             setStatus(R.string.title_connecting);
@@ -193,12 +199,20 @@ public class BroadcastScreen extends ActionBarActivity{
                             setStatus(R.string.title_not_connected);
                             break;
                     }
+                    break;
+                        case Constants.MESSAGE_DEVICE_NAME:
+                            mConnectedDeviceName = msg.getData().getString(Constants.DEVICE_NAME);
+                            if(null != getApplicationContext()) {
+                                Toast.makeText(getApplicationContext(), "Connected to "
+                                        + mConnectedDeviceName, Toast.LENGTH_SHORT).show();
+                            }
+                            break;
+                    }
             }
-        }
-    };
+        };
 
     /**
-     *  list of song functions
+     * list of song functions
      **/
     public void getSongList() {
         //retrieve song info
@@ -250,20 +264,78 @@ public class BroadcastScreen extends ActionBarActivity{
      * selectedSongList is used for transmitting multiple songs
      */
     public void songPicked(View view) {
-        //ArrayList<String> selectedSongList = new ArrayList<String>();
-        Uri allsongsuri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-        String songPath = allsongsuri.getPath();
-        //selectedSongList.add(songPath);
+        int songPosition = 0;
+        String tempSong = view.getTag().toString();
+        songPosition = Integer.parseInt(tempSong);
+        Song selectedSong = queuedSongs.get(songPosition);
+        long selectedSongID = selectedSong.getSongID();
+        Uri trackUri = ContentUris.withAppendedId(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                selectedSongID);
+        Log.d(TAG, "Uri File: " + trackUri.getPath());
 
-        Intent returnToBroadcastScreen = new Intent();
-        returnToBroadcastScreen.putExtra("chosenSong", songPath);
+        if(broadcastService.getState() == BroadcastService.STATE_CONNECTED){
+        try {
+            Log.d(TAG, "CurrentState: " + currentState);
+           String getFileName = getRealPathFromURI(trackUri);
+                     Log.d(TAG, "Found yeah! " + getFileName);
+//            File aFile = new File(trackUri.getPath());
+//            Uri.fromFile(aFile);
+//            Log.d(TAG,"Uri.fromFile method" + Uri.fromFile(aFile));
+//
+//            byte[] transmitter = getFileName.getBytes();
 
-        //Set a result for another activity to receive and finish this activity
-        setResult(RESULT_OK, returnToBroadcastScreen);
-        Log.d(TAG, "Packaging Media Path: " + songPath);
+            //used to convert file to byteArray
+            File tempFile = new File(getFileName);
+            Log.d(TAG, "Converting file to byte array");
+            convertFileToByteArray(tempFile);
+            Log.d(TAG, "Writing to broadcastService");
 
-    //  startActivity(new Intent(this,BroadcastScreen.class));
-    //  finish();
-        Log.d(TAG,"Switching to Broadcasting screen with : " + songPath);
+            broadcastService.write(convertedByteArray);//Current play small chunks of music, have to convert the actual file to byte array before shipping
+
+
+        } catch (Exception e) {
+                     Log.d(TAG, "Failed to find file path " + e);
+            }
+        }
+    }
+        public String getRealPathFromURI(Uri contentUri) {
+            String[] proj = {MediaStore.Audio.Media.DATA};
+            Cursor cursor = managedQuery(contentUri, proj, null, null, null);
+            int column_index = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
+            cursor.moveToFirst();
+            return cursor.getString(column_index);
+        }
+
+    public int getState(){return currentState;}
+
+    private void setState(int state) {
+        Log.d(TAG, "setState() " + currentState + " -> " + state);
+        currentState = state;
+    }
+
+    public File getConvertUriToFile(){return selectedSongLocation;}
+
+    public void convertFileToByteArray(File file) {
+        try {
+            InputStream inputStream = new FileInputStream(file);
+            int inputStreamSize = inputStream.available();
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[16 * 1024];
+            int byteCounter;
+
+            while ((byteCounter = inputStream.read(buffer)) != -1) {
+                byteArrayOutputStream.write(buffer, 0, byteCounter);
+            }
+            convertedByteArray = new byte[inputStreamSize];
+            Log.d(TAG, "What inside this byte array before? " + convertedByteArray.toString());
+            convertedByteArray = byteArrayOutputStream.toByteArray();
+            Log.d(TAG, "What inside this byte array after? " + convertedByteArray.toString());
+            inputStream.close();
+            byteArrayOutputStream.close();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
