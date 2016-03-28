@@ -1,22 +1,34 @@
 package com.example.phong.musicCaster;
 
+
 /**
  * Created by Phong on 19/11/2015.
  */
 public class Song {
 
-    private long id;
-    private String title;
-    private String artist;
+    private long songID;
+    private String songTitle;
+    private String songArtist;
 
-    public Song(long songID, String songTitle, String songArtist) {
-        id=songID;
-        title=songTitle;
-        artist=songArtist;
+    public Song(long ID, String title, String artist) {
+        songID = ID;
+        songTitle = title;
+        songArtist = artist;
+
     }
 
-    public long getID(){return id;}
-    public String getTitle(){return title;}
-    public String getArtist(){return artist;}
+    public long getSongID() {
+        return songID;
+    }
+
+    public String getSongTitle() {
+        return songTitle;
+    }
+
+    public String getSongArtist() {
+        return songArtist;
+    }
 
 }
+
+
