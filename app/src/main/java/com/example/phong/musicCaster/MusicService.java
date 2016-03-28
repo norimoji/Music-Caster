@@ -1,23 +1,21 @@
 package com.example.phong.musicCaster;
 
+import android.app.Notification;
+import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ContentUris;
 import android.content.Intent;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Binder;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.support.annotation.Nullable;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.Random;
-
-import android.content.ContentUris;
-import android.media.AudioManager;
-import android.net.Uri;
-import android.os.Binder;
-import android.os.PowerManager;
-import android.util.Log;
-
-import android.app.Notification;
-import android.app.PendingIntent;
 
 /**
  * Created by Phong on 19/11/2015.
@@ -59,7 +57,7 @@ public class MusicService extends Service implements MediaPlayer.OnPreparedListe
         player.setOnErrorListener(this);
     }
 
-    public void setList(ArrayList<Song> theSongs) {
+    public void setListOfSongs(ArrayList<Song> theSongs) {
         songs = theSongs;
     }
 
@@ -100,9 +98,9 @@ public class MusicService extends Service implements MediaPlayer.OnPreparedListe
         player.reset();
         //get song
         Song playSong = songs.get(songPosn);
-        songTitle = playSong.getTitle();
+        songTitle = playSong.getSongTitle();
         //get id
-        long currSong = playSong.getID();
+        long currSong = playSong.getSongID();
         //set uri
         Uri trackUri = ContentUris.withAppendedId(
                 android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -130,7 +128,7 @@ public class MusicService extends Service implements MediaPlayer.OnPreparedListe
                 .setTicker(songTitle)
                 .setOngoing(true)
                 .setContentTitle("Playing")
-        .setContentText(songTitle);
+                .setContentText(songTitle);
         Notification not = builder.build();
 
         startForeground(R.drawable.play, not);
@@ -186,6 +184,8 @@ public class MusicService extends Service implements MediaPlayer.OnPreparedListe
 
     public void setShuffle(){
         if(shuffle) shuffle=false;
-                else shuffle=true;
+        else shuffle=true;
     }
+
+    public int getSongIndex(){return songPosn;}
 }
