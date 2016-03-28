@@ -42,10 +42,19 @@ public class BroadcastService {
     public static final int STATE_CONNECTING = 2; //Preparing for initiation with outgoing connection;
     public static final int STATE_CONNECTED = 3;  //Successfully connected with slave device;
 
+    private byte[] convertedByteArray = null;
+    private BroadcastScreen broadcastScreen = null;
+
+    private int currentHandlingState;
+
+    public static final int NOT_HANDLING_PACKAGE = 0;
+    public static final int HANDLING_PACKAGE = 1;
+
     public BroadcastService(Context context, Handler handler) {
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         currentState = STATE_NONE;
         threadHandler = handler;
+        currentHandlingState = NOT_HANDLING_PACKAGE;
     }
     private synchronized void setState(int state) {
         Log.d(TAG, "setState() " + currentState + " -> " + state);
@@ -191,22 +200,23 @@ public class BroadcastService {
     }
 
     /**
-     * Write to the ConnectedThread in an unsynchronized manner
+     * Use write method in ConnectedThread for transmission
      *
      * @param out The bytes to write
      //see ConnectedThread#write(byte[])
      */
-//    public void write(byte[] out) {
-//        // Create temporary object
-//        ConnectedThread r;
-//        // Synchronize a copy of the ConnectedThread
-//        synchronized (this) {
-//            if (currentState!= STATE_CONNECTED) return;
-//            r = connectedThread;
-//        }
-//        // Perform the write unsynchronized
-//        r.write(out);
-//    }
+    public void write(byte[] out) {
+        // Create temporary object
+        ConnectedThread r;
+        // Synchronize a copy of the ConnectedThread
+        synchronized (this) {
+            if (currentState!= STATE_CONNECTED) return;
+            r = connectedThread;
+        }
+        // Perform the write unsynchronized
+        r.write(out);
+        Log.d(TAG, "We're writing out");
+    }
 
     /**
      * Indicate that the connection attempt failed and notify the UI Activity.
@@ -418,25 +428,39 @@ public class BroadcastService {
         @Override
         public void run() {
             Log.i(className, "Commence connected thread");
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[16 * 1024];
             int bytes;
 
             // Keep listening to the InputStream while connected
             while (true) {
+                //Intent intent = Intent.getIntent("card-package"); // receive intent from broadcastScreen as file object to be converted into bytearray.
                 try {
+                    Log.d(TAG,"Start the reading - connectedThread out method");
                     // Read from the InputStream
                     bytes = connectedInputStream.read(buffer);
 
                     // Send the obtained bytes to the UI Activity
-
+                    threadHandler.obtainMessage(Constants.MESSAGE_READ,bytes,-1,buffer).sendToTarget();
                 } catch (IOException e) {
                     Log.e(className, "disconnected", e);
                     connectionLost();
-                    // Start the service over to restart listening mode
+
+                    //Restart the broadcastService back to initial state(Accepting)
+                    BroadcastService.this.start();
                     break;
                 }
             }
         }
+
+    public void write(byte[] buffer){
+        try {
+            Log.d(TAG,"Started Writing out - connectedThread write method");
+            connectedOutputStream.write(buffer);
+        } catch (IOException e) {
+             Log.e(TAG, "Exception happen during write", e);
+        }
+    }
+
         public void cancel(){
             try {
                 connectedSocket.close();
@@ -446,7 +470,6 @@ public class BroadcastService {
         }
     }
 }
-
 
 
 
