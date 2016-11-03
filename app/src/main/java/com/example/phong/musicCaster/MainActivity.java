@@ -1,21 +1,24 @@
 package com.example.phong.musicCaster;
 
-import android.app.Activity;
+import android.Manifest;
+import android.bluetooth.BluetoothAdapter;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.media.MediaMetadataRetriever;
+import android.media.MediaPlayer;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.provider.MediaStore;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.Menu;
@@ -24,8 +27,6 @@ import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
-import android.widget.MediaController.MediaPlayerControl;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import com.example.phong.musicCaster.MusicService.MusicBinder;
@@ -35,58 +36,64 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 
-//Imports
-//More Imports
-//MediaControls
-
-public class MainActivity extends AppCompatActivity implements MediaPlayerControl {
+public class MainActivity extends AppCompatActivity {
+    public static final int REQUEST_ID_PERMISSIONS = 1;
+    private boolean storageNotGranted = true;
     private ArrayList<Song> songList;
     private ListView songView;
-
+    private BluetoothAdapter bluetoothAdapter = null;
     private MusicService musicSrv;
     private Intent playIntent;
-    private boolean musicBound=false;
+    private boolean musicBound = false;
 
-
-    //MusicController function
-    private MusicController controller;
-    private SeekBar progressbar;
-    private boolean paused=false, playbackPaused=false;
+    //MediaPlayer Controls
+    private boolean playbackPaused = false;
     private ImageButton pauseButton;
     private ImageButton previousButton;
     private ImageButton nextButton;
     private ImageView albumArt;
     private TextView minisongTitle;
+    private SongHolderV2 songAdt;
 
-    //Notification
-    private String songTitle="";
-    private static final int NOTIFY_ID=1;
-
-
-    private SongHolder songAdt;
-
-    //Testing Class
-    private Intent songIntent;
-
+    //AlbumArt Related
     private ImageView mSelectedTrackImage;
     private Bitmap songImage = null;
-    private Context context;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        if(checkStoragePermission()){
+            startMusicPlayer();
+        }
+    }
+
+    public boolean checkStoragePermission(){
+        int permissionReadStorageMessage = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE);
+        List<String> listPermissionsNeeded = new ArrayList<>();
+        if(permissionReadStorageMessage != PackageManager.PERMISSION_GRANTED){
+            listPermissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            startMusicPlayer();
+        }
+        if(!listPermissionsNeeded.isEmpty()) {
+            ActivityCompat.requestPermissions(this, listPermissionsNeeded.toArray(new String[listPermissionsNeeded.size()]), REQUEST_ID_PERMISSIONS);
+            return false;
+        }
+        return true;
+
+    }
+    public void startMusicPlayer(){
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
         songList = new ArrayList<Song>();
         songView = (ListView)findViewById(R.id.song_list);
 
-        //Working Code;
         this.getSongList();
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-//
         Collections.sort(songList, new Comparator<Song>() {
             public int compare(Song a, Song b) {
                 return a.getSongTitle().compareTo(b.getSongTitle());
@@ -97,8 +104,14 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
         songView.setAdapter(songAdt);
 
         MediaBarCreation();
-        initControllerView();
+        playbackController();
+       if(storageNotGranted) {
+           storageNotGranted = false;
+           finish();
+           startActivity(getIntent());
+       }
     }
+
     private ServiceConnection musicConnection = new ServiceConnection(){
 
         @Override
@@ -118,16 +131,99 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
     };
 
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (resultCode == Activity.RESULT_CANCELED) {
-            playPrev();
+
+        if(requestCode == 4){
+            if(bluetoothAdapter.isEnabled()) {
+                Intent openBroadcast = new Intent(this, BroadcastScreen.class);
+                startActivity(openBroadcast);
+            }
+        }
+        if(requestCode == 3) {
+            if (bluetoothAdapter.isEnabled()){
+                Intent openReceiver = new Intent(this, ReceiverScreen.class);
+                startActivity(openReceiver);
+            }
+        }
+
+    }
+
+    protected void onStart() {
+        super.onStart();
+        if(playIntent==null){
+            playIntent = new Intent(this, MusicService.class);
+            bindService(playIntent, musicConnection, Context.BIND_AUTO_CREATE);
+            startService(playIntent);
         }
     }
-        public void getSongList() {
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.menu_main, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        if(musicSrv.isShuffle()){
+            menu.getItem(1).setIcon(R.drawable.shuffleonbutton);
+        }else{
+            menu.getItem(1).setIcon(R.drawable.shuffleoffbutton);
+        }
+
+        if(musicSrv.isRepeating()){
+            menu.getItem(0).setIcon(R.drawable.repeatonbutton);
+        }else{
+            menu.getItem(0).setIcon(R.drawable.repeatoffbutton);
+        }
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_shuffle:
+                    musicSrv.setShuffle();
+                invalidateOptionsMenu();
+                break;
+            case R.id.action_repeat:
+                musicSrv.setRepeat();
+                invalidateOptionsMenu();
+                break;
+            case R.id.action_exit:
+                stopService(playIntent);
+                musicSrv=null;
+                System.exit(0);
+                break;
+            case R.id.action_broadcast:
+                if (!bluetoothAdapter.isEnabled()) {
+                    //Enable new activity turning on Bluetooth
+                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivityForResult(enableBtIntent, 4);
+                }else if(bluetoothAdapter.isEnabled()) {
+                    Intent openBroadcast = new Intent(this, BroadcastScreen.class);
+                    startActivity(openBroadcast);
+                }
+                break;
+            case R.id.action_Receiver:
+                if (!bluetoothAdapter.isEnabled()) {
+                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivityForResult(enableBtIntent, 3);
+                }else if(bluetoothAdapter.isEnabled()) {
+                    Intent openReceiver = new Intent(this, ReceiverScreen.class);
+                    startActivity(openReceiver);
+                }
+                break;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    public void getSongList() {
         //retrieve song info
         ContentResolver musicResolver = getContentResolver();
         //Searches content from the Primary external storage volume
         Uri musicUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         Cursor musicCursor = musicResolver.query(musicUri, null, null, null, null);
+        System.gc();
 
         if (musicCursor != null && musicCursor.moveToFirst()) {
             //get columns
@@ -163,66 +259,30 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
 
                     e.printStackTrace();
                 }
-
-
-
                 songList.add(new Song(thisId, thisTitle, thisArtist, bitmap));
             }
             while (musicCursor.moveToNext());
         }
     }
 
-    protected void onStart() {
-        super.onStart();
-        if(playIntent==null){
-            playIntent = new Intent(this, MusicService.class);
-            bindService(playIntent, musicConnection, Context.BIND_AUTO_CREATE);
-            startService(playIntent);
-        }
-    }
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        switch (item.getItemId()) {
-            case R.id.action_shuffle:
-                //shuffle
-                //shuffle
-                break;
-            case R.id.action_end:
-                stopService(playIntent);
-                musicSrv=null;
-                System.exit(0);
-                break;
-            case R.id.action_settings:
-                break;
-            case R.id.action_broadcast:
-                Intent openBroadcast = new Intent(this,BroadcastScreen.class);
-                startActivity(openBroadcast);
-                break;
-            case R.id.action_Receiver:
-                Intent openReceiver = new Intent(this,ReceiverScreen.class);
-                startActivity(openReceiver);
-                break;
-            case R.id.action_SongSelector:
-                Intent openSongSelector = new Intent(this,SongCollectionParcelable.class);
-                startActivity(openSongSelector);
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
     public void songPicked(View view) {
         musicSrv.setSong(Integer.parseInt(view.getTag().toString()));
         musicSrv.playSong();
+        pauseButton.setImageResource(R.drawable.pausebutton);
         displayMusicBar();
+        musicSrv.getMediaPlayer().setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+            @Override
+            public void onCompletion(MediaPlayer mp) {
+                if (musicSrv.isRepeating()) {
+                    mp.setLooping(true);
+                    mp.start();
+                } else {
+                    mp.stop();
+                    playNext();
+                    displayMusicBar();
+                }
+            }
+        });
     }
 
     protected void onDestroy() {
@@ -231,122 +291,64 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
         super.onDestroy();
     }
 
-    private void setController(){
-        controller = new MusicController(this);
-        controller.setPrevNextListeners(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                playNext();
-            }
-        }, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                playPrev();
-            }
-        });
-        controller.setMediaPlayer(this);
-        controller.setAnchorView(findViewById(R.id.song_list));
-        controller.setEnabled(true);
-    }
 
-
-    @Override
     public void start() {
         displayMusicBar();
         musicSrv.go();
     }
 
-    @Override
     public void pause() {
         playbackPaused=true;
         musicSrv.pausePlayer();
     }
 
-    @Override
-    public int getDuration() {
-        if(musicSrv!=null && musicBound && musicSrv.isPlaying())
-            return musicSrv.getDur();
-        else return 0;
-    }
-
-    @Override
-    public int getCurrentPosition() {
-        if(musicSrv!=null && musicBound && musicSrv.isPlaying())
-            return musicSrv.getPosn();
-        else return 0;
-    }
-
-    @Override
-    public void seekTo(int pos) {
-        musicSrv.seek(pos);
-    }
-
-    @Override
     public boolean isPlaying() {
         if(musicSrv!=null && musicBound)
             return musicSrv.isPlaying();
         return false;
     }
 
-    @Override
-    public int getBufferPercentage() {
-        return 0;
-    }
-
-    @Override
-    public boolean canPause() {
-        return true;
-    }
-
-    @Override
-    public boolean canSeekBackward() {
-        return true;
-    }
-
-    @Override
-    public boolean canSeekForward() {
-        return true;
-    }
-
-    @Override
-    public int getAudioSessionId() {
-        return 0;
-    }
-
-    protected void onPause(){
-        super.onPause();
-        paused=true;
-    }
-
-    protected void onResume(){
-        super.onResume();
-        if(paused){
-            setController();
-            paused = false;
-        }
-    }
-
-    protected void onStop() {
-        super.onStop();
-    }
-
     public void playNext(){
         musicSrv.playNext();
         if(playbackPaused){
-            playbackPaused=false;
+            playbackPaused = false;
         }
         displayMusicBar();
+        pauseButton.setImageResource(R.drawable.pausebutton);
+        musicSrv.getMediaPlayer().setOnCompletionListener(
+                new MediaPlayer.OnCompletionListener() {
+            @Override
+            public void onCompletion(MediaPlayer mp) {
+                if(musicSrv.isRepeating()){
+                    mp.setLooping(true);
+                    mp.start();
+                }
+            }
+        });
     }
+
+
 
     public void playPrev(){
         musicSrv.playPrev();
         if(playbackPaused){
-            playbackPaused=false;
+            playbackPaused = false;
         }
         displayMusicBar();
+        pauseButton.setImageResource(R.drawable.pausebutton);
+        musicSrv.getMediaPlayer().setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+            @Override
+            public void onCompletion(MediaPlayer mp) {
+                if (musicSrv.isRepeating()) {
+                    mp.setLooping(true);
+                    mp.start();
+                }
+            }
+        });
     }
 
-    private void initControllerView(){
+
+    private void playbackController(){
         nextButton = (ImageButton) findViewById(R.id.next_button);
         nextButton.setOnClickListener(new View.OnClickListener(){
             @Override
@@ -361,13 +363,15 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
             public void onClick(View v) {
                 if (isPlaying() != true) {
                     start();
+                    pauseButton.setImageResource(R.drawable.pausebutton);
                 } else {
                     pause();
+                    pauseButton.setImageResource(R.drawable.play);
                 }
             }
         });
 
-        previousButton = (ImageButton)findViewById(R.id.previous_button);
+        previousButton = (ImageButton) findViewById(R.id.previous_button);
         previousButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -380,18 +384,8 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
         albumArt = (ImageView) findViewById(R.id.miniAlbumArt_Image);
         albumArt.setImageBitmap(songList.get(musicSrv.getSongIndex()).getArtWork());
 
-//        minisongTitle = (TextView)findViewById(R.id.miniSong_title);
-//        minisongTitle.setText(songList.get(musicSrv.getSongIndex()).getSongTitle());
-    }
-
-    public void onSongCompletion(){
-        albumArt = new ImageView(this);
-        minisongTitle = new TextView(this);
-        albumArt = (ImageView) findViewById(R.id.miniAlbumArt_Image);
-        albumArt.setImageBitmap(songList.get(musicSrv.getSongIndex()).getArtWork());
-
-   //     minisongTitle = (TextView)findViewById(R.id.miniSong_title);
-    //    minisongTitle.setText(songList.get(musicSrv.getSongIndex()).getSongTitle());
+        minisongTitle = (TextView)findViewById(R.id.miniSong_title);
+        minisongTitle.setText(songList.get(musicSrv.getSongIndex()).getSongTitle());
     }
 
     private void MediaBarCreation(){
@@ -400,47 +394,5 @@ public class MainActivity extends AppCompatActivity implements MediaPlayerContro
         previousButton = new ImageButton(this);
         pauseButton = new ImageButton(this);
         nextButton = new ImageButton(this);
-    }
-
-    private class fetchAlbumArt extends AsyncTask<Void,Void,Boolean> {
-        private Context context;
-        public fetchAlbumArt(Context context){
-            this.context = context;
-        }
-
-        MediaMetadataRetriever mediaMetadataRetriever;
-        Bitmap tempImage = null;
-
-
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-            mediaMetadataRetriever = new MediaMetadataRetriever();
-            tempImage = null;
-        }
-
-
-        @Override
-        protected Boolean doInBackground(Void... params) {
-            try{
-                getSongList();
-                return true;
-            }catch (Exception e){
-                return false;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(Boolean aBoolean) {
-            Collections.sort(songList, new Comparator<Song>() {
-                public int compare(Song a, Song b) {
-                    return a.getSongTitle().compareTo(b.getSongTitle());
-                }
-            });
-
-            SongHolderV2 songAdt = new SongHolderV2(context, songList);
-            songView.setAdapter(songAdt);
-
-        }
     }
 }
